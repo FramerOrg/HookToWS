@@ -1,20 +1,22 @@
+// 导入依赖
 const http = require("http");
 const WebSocket = require("ws");
 const url = require("url");
 
-// 加载环境变量
+// 读取env配置
 require("dotenv").config();
 
-// 存储当前活跃的 WebSocket 连接
-let activeConnection = null;
+// 存储活跃的WebSocket连接
+const activeConnections = new Map();
 
-// 获取鉴权令牌
+// 读取WebSocket认证令牌
 const AUTH_TOKEN = process.env.WS_AUTH_TOKEN;
 
-// 创建 HTTP 服务器
+// 创建HTTP服务器
 const server = http.createServer((req, res) => {
-  // Webhook 处理端点
-  if (req.method === "POST" && req.url === "/webhook") {
+  // 处理Webhook请求
+  if (req.method === "POST" && req.url.startsWith("/webhook/")) {
+    const path = req.url.split("/")[2]; // 自定义WebHook路径
     let body = [];
 
     req
@@ -24,17 +26,21 @@ const server = http.createServer((req, res) => {
       .on("end", () => {
         body = Buffer.concat(body).toString();
 
-        // 如果有活跃的 WebSocket 连接
-        if (
-          activeConnection &&
-          activeConnection.readyState === WebSocket.OPEN
-        ) {
-          activeConnection.send(body);
+        // 如果未创建该WebHook路径
+        if (!path) {
+          res.writeHead(400, { "Content-Type": "text/plain" });
+          return res.end("Missing path in webhook URL");
+        }
+
+        // 获取该WebHook路径对应的WebSocket连接
+        const ws = activeConnections.get(path);
+        if (ws && ws.readyState === WebSocket.OPEN) {
+          ws.send(body);
           res.writeHead(200, { "Content-Type": "text/plain" });
           res.end("Webhook received and forwarded to WebSocket client");
         } else {
           res.writeHead(503, { "Content-Type": "text/plain" });
-          res.end("No active WebSocket connection available");
+          res.end("No active WebSocket connection for this path");
         }
       });
   } else {
@@ -43,21 +49,29 @@ const server = http.createServer((req, res) => {
   }
 });
 
-// 创建 WebSocket 服务器
 const wss = new WebSocket.Server({
   server,
-  // 添加连接验证回调
   verifyClient: (info, done) => {
     try {
-      // 解析 URL 查询参数
       const parsedUrl = url.parse(info.req.url, true);
-      const clientToken = parsedUrl.query.token;
+      const query = parsedUrl.query;
+      const clientToken = query.token;
+      const path = query.path;
 
-      // 验证令牌
+      // 验证token和path都存在
+      if (!clientToken || !path) {
+        console.warn(
+          `Missing parameters from ${info.req.socket.remoteAddress}`
+        );
+        return done(false, 400, "Token and path are required");
+      }
+
+      // 验证WebSocket认证令牌
       if (clientToken === AUTH_TOKEN) {
         return done(true);
       }
 
+      // 如果认证失败
       console.warn(
         `Unauthorized connection attempt from ${info.req.socket.remoteAddress}`
       );
@@ -70,32 +84,49 @@ const wss = new WebSocket.Server({
 });
 
 wss.on("connection", (ws, req) => {
-  // 关闭现有连接（如果存在）
-  if (activeConnection) {
-    activeConnection.close();
+  const parsedUrl = url.parse(req.url, true);
+  const path = parsedUrl.query.path;
+
+  // 验证path参数存在
+  if (!path) {
+    console.error("Connection attempt without path parameter");
+    return ws.close(4000, "Path parameter missing");
   }
 
-  // 设置新连接为活跃连接
-  activeConnection = ws;
+  // 关闭该WebHook路径的现有WebSocket连接
+  const existingConnection = activeConnections.get(path);
+  if (existingConnection) {
+    existingConnection.close(1000, "Replaced by new connection");
+  }
+
+  // 存储新WebSocket连接
+  activeConnections.set(path, ws);
   console.log(
-    `New authorized WebSocket client connected from ${req.socket.remoteAddress}`
+    `New client connected for path: ${path} (${req.socket.remoteAddress})`
   );
 
-  // 连接关闭处理
-  ws.on("close", () => {
-    if (activeConnection === ws) {
-      activeConnection = null;
-      console.log("WebSocket client disconnected");
+  ws.on("close", (code, reason) => {
+    // 只有当当前WebSocket连接是活跃连接时才移除
+    if (activeConnections.get(path) === ws) {
+      activeConnections.delete(path);
+      console.log(
+        `Connection closed for path: ${path} (${code}: ${
+          reason || "No reason"
+        })`
+      );
     }
   });
 
-  // 错误处理
+  // 处理WebSocket错误
   ws.on("error", (err) => {
-    console.error("WebSocket error:", err);
+    console.error(`WebSocket error on path ${path}:`, err);
+    if (activeConnections.get(path) === ws) {
+      activeConnections.delete(path);
+    }
   });
 });
 
-// 获取端口（优先使用环境变量）
+// 启动HTTP服务器
 const port = process.env.PORT || 3000;
 server.listen(port, () => {
   console.log(`Server running on port ${port}`);
