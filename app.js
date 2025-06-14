@@ -59,7 +59,7 @@ const wss = new WebSocket.Server({
       }
 
       console.warn(
-        `Unauthorized connection attempt from ${info.req.socket.remoteAddress}`,
+        `Unauthorized connection attempt from ${info.req.socket.remoteAddress}`
       );
       done(false, 401, "Unauthorized");
     } catch (err) {
@@ -78,7 +78,7 @@ wss.on("connection", (ws, req) => {
   // 设置新连接为活跃连接
   activeConnection = ws;
   console.log(
-    `New authorized WebSocket client connected from ${req.socket.remoteAddress}`,
+    `New authorized WebSocket client connected from ${req.socket.remoteAddress}`
   );
 
   // 连接关闭处理
@@ -99,8 +99,4 @@ wss.on("connection", (ws, req) => {
 const port = process.env.PORT || 3000;
 server.listen(port, () => {
   console.log(`Server running on port ${port}`);
-  console.log(`Webhook endpoint: http://localhost:${port}/webhook`);
-  console.log(
-    `WebSocket endpoint: ws://localhost:${port}/?token=${AUTH_TOKEN}`,
-  );
 });
