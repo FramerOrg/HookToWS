@@ -6,7 +6,7 @@ Convert Webhook To Websocket
 
 ```shell
 git clone https://github.com/FramerOrg/HookToWS.git
-mv HookToWS/* . && rm -rf HookToWS
+mv HookToWS/* . && rm -rf HookToWS  # optional
 npm install
 echo 'WS_AUTH_TOKEN=your_secure_token_here' >> '.env'
 echo 'PORT=8080' >> '.env'
