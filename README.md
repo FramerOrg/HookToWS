@@ -44,3 +44,10 @@ ws://150.138.78.253:10047/?token=auth1234&path=<your_path>
 ```plaintext
 http://150.138.78.253:10047/webhook/<your_path>
 ```
+
+## Docker
+
+```shell
+docker pull runoneall/hook-to-ws
+docker run -d --name hook-to-ws -p 3000:3000 -e WS_AUTH_TOKEN=your_secure_token_here -e PORT=3000 runoneall/hook-to-ws
+```
